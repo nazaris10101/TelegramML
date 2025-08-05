@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from time import sleep
+from binance.client import Client
+
 from datetime import timedelta
 from binance.client import Client
 from sklearn.preprocessing import RobustScaler
@@ -63,18 +66,64 @@ def bollinger(series: pd.Series, window=20, k=2):
     width = (upper - lower) / (ma + 1e-9)
     return upper, lower, width
 
-def fetch_ohlcv(limit=LOOKBACK):
+def fetch_ohlcv(limit=LOOKBACK, symbol=SYMBOL, interval=INTERVAL, retries=5):
+    """
+    Тягне ОСТАННІ `limit` свічок із Binance Spot (за замовч. BTCUSDT, 1d).
+    Пагінація назад (через endTime), ретраї, повертає UTC-час і float-значення.
+    Колонки: ['timestamp','open','high','low','close','volume'].
+    """
     client = Client()
-    kl = client.get_klines(symbol=SYMBOL, interval=INTERVAL, limit=limit)
-    df = pd.DataFrame(kl, columns=[
-        'timestamp','open','high','low','close','volume',
+    max_per_req = 1000
+    collected = []
+    end_time = None  # None → останні свічки; далі рухаємось у минуле
+
+    cols = [
+        'open_time','open','high','low','close','volume',
         'close_time','quote_asset_volume','number_of_trades',
         'taker_buy_base','taker_buy_quote','ignore'
-    ])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    ]
+
+    while len(collected) < limit:
+        batch_limit = min(max_per_req, limit - len(collected))
+        last_err, batch = None, None
+
+        for attempt in range(retries):
+            try:
+                batch = client.get_klines(
+                    symbol=symbol,
+                    interval=interval,
+                    limit=batch_limit,
+                    endTime=end_time
+                )
+                break
+            except Exception as e:
+                last_err = e
+                wait = 2 ** attempt
+                print(f"Помилка завантаження ({e}). Повтор через {wait}s…")
+                sleep(wait)
+
+        if last_err is not None:
+            raise RuntimeError(f"Не вдалося отримати дані з Binance: {last_err}")
+        if not batch:
+            break
+
+        # наступний запит — перед першою свічкою поточного батчу
+        first_open_time = batch[0][0]  # open_time мс
+        end_time = first_open_time - 1
+
+        collected = batch + collected  # додаємо на початок, зберігаючи хронологію
+        sleep(0.2)  # маленька пауза, щоб не впертися в ліміти
+
+    if not collected:
+        raise ValueError("Порожня відповідь від Binance.")
+
+    df = pd.DataFrame(collected, columns=cols)
+    df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', utc=True)
     for c in ['open','high','low','close','volume']:
         df[c] = df[c].astype(float)
-    return df[['timestamp','open','high','low','close','volume']]
+
+    df = df[['timestamp','open','high','low','close','volume']].sort_values('timestamp').reset_index(drop=True)
+    return df
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
