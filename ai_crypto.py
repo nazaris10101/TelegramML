@@ -7,7 +7,6 @@ from time import sleep
 from binance.client import Client
 
 from datetime import timedelta
-from binance.client import Client
 from sklearn.preprocessing import RobustScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import joblib
@@ -206,6 +205,22 @@ def build_model(input_timesteps, input_dim, pred_len):
     return model
 
 def walk_forward_eval(X, Y, folds=FOLDS):
+    """Create index splits for walk-forward evaluation.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Масив ознак (використовується тільки для визначення довжини).
+    Y : np.ndarray
+        Відповідні цільові значення (довжина має збігатися з ``X``).
+    folds : int, optional
+        Кількість фолдів для розбиття, за замовчуванням ``FOLDS``.
+
+    Returns
+    -------
+    list[tuple[tuple[int, int], tuple[int, int]]]
+        Список пар ``((train_start, train_end), (test_start, test_end))``.
+    """
     n = len(X)
     fold_size = n // (folds + 1)
     splits = []
@@ -371,6 +386,6 @@ def main():
     save_forecast_csv_png(df[['timestamp','close']].assign(close=df['close']), fut_prices)
 
 if __name__ == "__main__":
-    # Запобіжник для старих Mac: вимкнути AVX помилки TensorFlow (опціонально)
+    # Приглушити надмірні інформаційні повідомлення TensorFlow
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
     main()

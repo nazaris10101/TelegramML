@@ -42,8 +42,14 @@ def load_forecast_text(max_days: int = 7) -> str:
 
     try:
         df = pd.read_csv(CSV_PATH)
-        # Шукаємо колонку з прогнозом
-        col = "forecast" if "forecast" in df.columns else df.columns[0]
+        # Вибір колонки з прогнозом: спочатку 'predicted_close_usd', потім 'forecast',
+        # і лише як запасний варіант беремо перший стовпець
+        if "predicted_close_usd" in df.columns:
+            col = "predicted_close_usd"
+        elif "forecast" in df.columns:
+            col = "forecast"
+        else:
+            col = df.columns[0]
         vals = df[col].tolist()[:max_days]
 
         lines = ["📈 Прогноз ціни BTC на 7 днів:"]
